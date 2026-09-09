@@ -14,12 +14,12 @@ BOUNDS = [(-np.pi/3, np.pi/3), (np.pi/3, np.pi), (np.pi, 5*np.pi/3)]
 #%%
 
 def embed(angles: np.ndarray) -> np.ndarray:
-    """(n, 2) angles -> (n, 4) points sur le tore plonge dans R^4."""
+    """(n, 2) angles -> (n, 4) points on the torus embedded in R^4."""
     th1, th2 = angles[:, 0], angles[:, 1]
     return np.column_stack([np.cos(th1), np.sin(th1), np.cos(th2), np.sin(th2)])
 
 def unembed(x: np.ndarray) -> np.ndarray:
-    """(n, 4) -> (n, 2) angles dans [0, 2pi), inverse a gauche de embed."""
+    """(n, 4) -> (n, 2) angles in [0, 2pi), left inverse of embed."""
     th1 = np.arctan2(x[:, 1], x[:, 0])
     th2 = np.arctan2(x[:, 3], x[:, 2])
     return np.column_stack([th1, th2]) % (2 * np.pi)
@@ -28,13 +28,13 @@ def unembed(x: np.ndarray) -> np.ndarray:
 # %%
 
 def log_density_1d(theta: np.ndarray, weights: np.ndarray, kappa: float) -> np.ndarray:
-    """(n,) angles -> (n,) log-densite du melange de trois von Mises."""
+    """(n,) angles -> (n,) log-density of the three-von-Mises mixture."""
     z = np.log(weights) + vonmises.logpdf(theta[:, None], kappa, loc=MU)
     return logsumexp(z, axis=1)
 
 # %%
 def sample(n: int, seed: int) -> np.ndarray:
-    """Tirage exact de n points (n, 2) selon le melange separable."""
+    """Exact draw of n points (n, 2) from the separable mixture."""
     rng = np.random.default_rng(seed)
 
     idx1 = rng.choice(3, size=n, p=WEIGHTS1)
@@ -48,14 +48,14 @@ def sample(n: int, seed: int) -> np.ndarray:
 # %%
 
 def basin_index(theta: np.ndarray) -> np.ndarray:
-    """(n,) angles -> (n,) indices de secteur dans {0, 1, 2}."""
+    """(n,) angles -> (n,) sector indices in {0, 1, 2}."""
     shifted = (theta + np.pi/3) % (2*np.pi)
     return (shifted // (2*np.pi/3)).astype(int)
 
 # %%
 
 def basin_weights(kappa: float, n_grid: int | None = None) -> np.ndarray:
-    """Poids exacts (3, 3) des neuf bassins, par quadrature (n_grid inutilise ici)."""
+    """Exact (3, 3) weights of the nine basins, by quadrature (n_grid unused here)."""
     def density(theta: float, weights: np.ndarray) -> float:
         theta_arr = np.array([theta])
         return np.exp(log_density_1d(theta_arr, weights, kappa))[0]
@@ -68,7 +68,7 @@ def basin_weights(kappa: float, n_grid: int | None = None) -> np.ndarray:
 # %%
 
 def basin_occupancy(angles: np.ndarray) -> np.ndarray:
-    """(n, 2) angles -> (3, 3) proportions empiriques par bassin."""
+    """(n, 2) angles -> (3, 3) empirical proportions per basin."""
     idx1 = basin_index(angles[:, 0])
     idx2 = basin_index(angles[:, 1])
     flat = 3 * idx1 + idx2
@@ -78,7 +78,7 @@ def basin_occupancy(angles: np.ndarray) -> np.ndarray:
 # %%
 
 def potential(angles: np.ndarray, kappa: float) -> np.ndarray:
-    """(n, 2) angles -> (n,) energie potentielle U = -log p."""
+    """(n, 2) angles -> (n,) potential energy U = -log p."""
     ld1 = log_density_1d(angles[:, 0], WEIGHTS1, kappa)
     ld2 = log_density_1d(angles[:, 1], WEIGHTS2, kappa)
     return -(ld1 + ld2)
@@ -86,7 +86,7 @@ def potential(angles: np.ndarray, kappa: float) -> np.ndarray:
 # %%
 
 def project(x: np.ndarray) -> np.ndarray:
-    """(n, 4) -> (n, 4) point du tore le plus proche (normalisation par paire)."""
+    """(n, 4) -> (n, 4) closest point on the torus (per-pair normalization)."""
     n1 = np.linalg.norm(x[:, :2], axis=1, keepdims=True)
     n2 = np.linalg.norm(x[:, 2:], axis=1, keepdims=True)
     return np.column_stack([x[:, :2] / n1, x[:, 2:] / n2])
@@ -94,7 +94,7 @@ def project(x: np.ndarray) -> np.ndarray:
 # %%
 
 def tangent_projector(x: np.ndarray) -> np.ndarray:
-    """(n, 4) -> (n, 4, 4) projecteur orthogonal sur le tangent au point projete."""
+    """(n, 4) -> (n, 4, 4) orthogonal projector onto the tangent at the projected point."""
     xp = project(x)
     n1 = np.zeros((x.shape[0], 4))
     n1[:, :2] = xp[:, :2]
@@ -107,7 +107,7 @@ def tangent_projector(x: np.ndarray) -> np.ndarray:
 # %%
 
 def sample_tubular(n: int, tau: float, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    """n points (n, 4) dans une gaine d'epaisseur tau (< 1) autour du tore, et leurs amplitudes (n,)."""
+    """n points (n, 4) in a tubular shell of thickness tau (< 1) around the torus, and their amplitudes (n,)."""
     rng = np.random.default_rng(seed)
 
     angles = rng.uniform(0, 2*np.pi, size=(n, 2))
