@@ -11,7 +11,7 @@ class ScoreMLP(nn.Module):
     computed by the separate `score` function below, not inside this module.
     """
 
-    def __init__(self, dim: int = 4, hidden: int = 128, n_layers: int = 4):
+    def __init__(self, dim: int = 4, hidden: int = 256, n_layers: int = 8):
         super().__init__()
         layers = [nn.Linear(dim + 1, hidden), nn.SiLU()]
         for _ in range(n_layers - 1):
