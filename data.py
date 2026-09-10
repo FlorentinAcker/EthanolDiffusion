@@ -3,6 +3,7 @@ import numpy as np
 from scipy.stats import vonmises
 from scipy.special import logsumexp
 from scipy.integrate import quad
+from scipy.special import iv
 
 #%%
 MU = np.array([0., 2*np.pi/3, 4*np.pi/3])
@@ -31,6 +32,30 @@ def log_density_1d(theta: np.ndarray, weights: np.ndarray, kappa: float) -> np.n
     """(n,) angles -> (n,) log-density of the three-von-Mises mixture."""
     z = np.log(weights) + vonmises.logpdf(theta[:, None], kappa, loc=MU)
     return logsumexp(z, axis=1)
+
+# %%
+
+def density_sigma_1d(theta: np.ndarray, weights: np.ndarray, kappa: float,
+                      sigma: float, n_harmonics: int = 30) -> np.ndarray:
+    """
+    (n,) angles -> (n,) density of the mixture wrap-blurred by a Gaussian
+    noise of scale sigma on the circle (sigma=0 reduces to the exact
+    density), via truncated Fourier series.
+
+    Convolution on the circle becomes a product of Fourier coefficients:
+    mixture coefficient c_n = sum_j w_j * exp(i*n*mu_j) * I_n(kappa)/I_0(kappa),
+    wrapped-Gaussian kernel coefficient g_n(sigma) = exp(-n^2 sigma^2 / 2),
+    blurred density coefficients = c_n * g_n(sigma), reconstructed by an
+    inverse (truncated) Fourier series.
+    """
+    n = np.arange(-n_harmonics, n_harmonics + 1)
+    ratio = iv(np.abs(n), kappa) / iv(0, kappa)                      # I_|n|(kappa)/I_0(kappa)
+    c_n = ratio * (weights[None, :] * np.exp(1j * np.outer(n, MU))).sum(axis=1)  # (2*n_harmonics+1,)
+    g_n = np.exp(-0.5 * (n ** 2) * sigma ** 2)
+    coeffs = c_n * g_n / (2 * np.pi)
+
+    phase = np.exp(-1j * np.outer(theta, n))                          # (n_theta, 2*n_harmonics+1)
+    return (phase @ coeffs).real
 
 # %%
 def sample(n: int, seed: int) -> np.ndarray:
@@ -124,3 +149,21 @@ def sample_tubular(n: int, tau: float, seed: int) -> tuple[np.ndarray, np.ndarra
     x_tubular = x + amplitudes[:, None] * direction
 
     return x_tubular, amplitudes
+
+# %%
+
+import torch
+from torch.utils.data import Dataset
+
+class TorusDataset(Dataset):
+    """Fixed dataset of n points on the torus, embedded in R^4, for use with a DataLoader."""
+
+    def __init__(self, n: int, seed: int):
+        angles = sample(n, seed)
+        self.points = torch.tensor(embed(angles), dtype=torch.float32)
+
+    def __len__(self) -> int:
+        return self.points.shape[0]
+
+    def __getitem__(self, i: int) -> torch.Tensor:
+        return self.points[i]
