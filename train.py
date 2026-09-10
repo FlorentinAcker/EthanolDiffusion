@@ -4,7 +4,6 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
 import math
 
-from data import sample, embed
 from models.diffusion import ScoreMLP, score
 
 # %%
@@ -16,30 +15,6 @@ N_WARMUP = 500        # not in the paper; added as a standard safety net
 N_ITERS = 10_000
 BATCH_SIZE = 512
 GRAD_CLIP_NORM = 1.0
-DIM = 4
-
-# NOTE ON SCORE BLOWUP: by construction, the score explodes like 1/sigma^2
-# as sigma -> 0, because the data manifold has positive codimension in R^4.
-# The sigma^2 weighting in the CSM loss (see csm_loss below) keeps the loss
-# itself bounded even as sigma -> 0; gradient clipping is the remaining
-# safety net for any residual instability. No epsilon lower bound on sigma
-# is used here (unlike the paper's eps=1e-4) -- open question to check with
-# the authors whether this matters in practice.
-# NOTE ON MEMORIZATION: DSM's empirical-optimal solution is known to
-# memorize training points, especially at small sigma. Worth checking
-# post-training: compare basin_occupancy of model-generated samples to
-# the exact basin_weights, to see whether the model generalizes across
-# the mixture or collapses onto the training points.
-
-# %%
-
-def get_batch(batch_size: int, seed: int) -> torch.Tensor:
-    """
-    Draw a batch of clean points x_0 on the torus, embedded in R^4.
-    """
-    s = sample(batch_size, seed)
-    points = embed(s)
-    return torch.tensor(points, dtype=torch.float32)
 
 # %%
 
@@ -56,17 +31,17 @@ def csm_loss(x0: torch.Tensor, model: ScoreMLP) -> torch.Tensor:
     One Monte-Carlo estimate of the conditional score matching loss
     (paper's eq. 26), for a batch of clean points x0.
 
-    x0: (batch, DIM). Returns: scalar loss tensor.
+    x0: (batch, dim). Returns: scalar loss tensor.
     """
     sigma = sample_sigma(x0.shape[0])              # (batch,)
-    eps = torch.randn_like(x0)                      # (batch, DIM)
+    eps = torch.randn_like(x0)                      # (batch, dim)
 
     if sigma.dim() == 1:
         sigma = sigma.unsqueeze(-1)                 # (batch, 1)
-    x = x0 + sigma * eps                             # (batch, DIM)
+    x = x0 + sigma * eps                             # (batch, dim)
 
-    s = score(x, sigma, model)                       # (batch, DIM)
-    target = -eps / sigma                             # (batch, DIM)
+    s = score(x, sigma, model)                       # (batch, dim)
+    target = -eps / sigma                             # (batch, dim)
 
     l = (((s - target) ** 2).sum(dim=-1, keepdim=True) * sigma ** 2).mean()
     return l
@@ -91,4 +66,41 @@ def make_lr_scheduler(optimizer: Adam) -> LambdaLR:
         return (LR_MIN + (LR_MAX - LR_MIN) * cosine) / LR_MAX
 
     return LambdaLR(optimizer, lr_lambda)
+
 # %%
+
+def train(dataset: torch.Tensor, dim: int, seed: int = 0, log_every: int = 500) -> ScoreMLP:
+    """
+    Main training loop, following the paper's protocol (App. H.1.1):
+    train on mini-batches resampled from a FIXED dataset, with
+    warmup+cosine lr and gradient clipping.
+
+    dataset: (n_data, dim) tensor of clean points, already prepared by
+      the caller (e.g. the notebook, via data.sample + data.embed for
+      the torus, or an equivalent pipeline for another dataset).
+    dim: dimension of the ambient space (must match dataset.shape[-1]).
+    """
+    assert dataset.shape[-1] == dim, 
+    torch.manual_seed(seed)
+    n_data = dataset.shape[0]
+
+    model = ScoreMLP(dim=dim)
+    optimizer = Adam(model.parameters(), lr=LR_MAX)
+    scheduler = make_lr_scheduler(optimizer)
+
+    for step in range(N_ITERS):
+        idx = torch.randint(0, n_data, (BATCH_SIZE,))
+        x0 = dataset[idx]
+
+        loss = csm_loss(x0, model)
+
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+        optimizer.step()
+        scheduler.step()
+
+        if step % log_every == 0:
+            print(f"step {step}: loss={loss.item():.4f}")
+
+    return model
