@@ -7,7 +7,7 @@ from scipy.special import iv
 
 #%%
 MU = np.array([0., 2*np.pi/3, 4*np.pi/3])
-KAPPA = 8.0
+KAPPA = 1.3
 WEIGHTS1 = np.array([0.60, 0.30, 0.10])
 WEIGHTS2 = np.array([0.50, 0.35, 0.15])
 BOUNDS = [(-np.pi/3, np.pi/3), (np.pi/3, np.pi), (np.pi, 5*np.pi/3)]
