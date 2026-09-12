@@ -11,7 +11,7 @@ class ScoreMLP(nn.Module):
     computed by the separate `score` function below, not inside this module.
     """
 
-    def __init__(self, dim: int = 4, hidden: int = 256, n_layers: int = 8):
+    def __init__(self, dim: int = 4, hidden: int = 128, n_layers: int = 4):
         super().__init__()
         layers = [nn.Linear(dim + 1, hidden), nn.SiLU()]
         for _ in range(n_layers - 1):
@@ -65,14 +65,18 @@ def v_jvp(x: torch.Tensor, sigma: torch.Tensor, model: ScoreMLP, g: torch.Tensor
 # %%
 
 def full_jacobian(x: torch.Tensor, sigma: torch.Tensor, model: ScoreMLP) -> torch.Tensor:
-    """Full Jacobian v'(x) for a SINGLE point x, built from v_jvp on the canonical basis.
+    """Full Jacobian v'(x) for a batch of n points (n can be 1 or more),
+    built from v_jvp on the canonical basis.
 
     Note: v_jvp(x, sigma, model, e_i) returns the i-th column of v'(x)^T,
     which is also the i-th ROW of v'(x). Stacking these rows with dim=1
     therefore reconstructs v'(x) directly (checked numerically against
-    torch.autograd.functional.jacobian).
+    torch.autograd.functional.jacobian). The loop below runs exactly
+    `dim` times regardless of n, since v_jvp already processes the whole
+    batch in a single call per direction -- there is no separate
+    single-point vs. batched code path.
 
-    x: (1, dim), sigma: (1,) or (1, 1). Returns: (1, dim, dim).
+    x: (n, dim), sigma: (n,) or (n, 1). Returns: (n, dim, dim).
     """
     d = x.shape[-1]
     rows = []
